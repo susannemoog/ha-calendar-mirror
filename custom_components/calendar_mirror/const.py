@@ -7,7 +7,7 @@ CONF_TARGET_CALENDAR_ID = "target_calendar_id"
 CONF_SYNC_WINDOW_DAYS = "sync_window_days"
 CONF_SYNC_INTERVAL_MINUTES = "sync_interval_minutes"
 
-DEFAULT_SYNC_WINDOW_DAYS = 30
+DEFAULT_SYNC_WINDOW_DAYS = 365
 DEFAULT_SYNC_INTERVAL_MINUTES = 20
 
 # Tag used in synced event descriptions so we only ever touch events we

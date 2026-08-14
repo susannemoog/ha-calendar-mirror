@@ -127,6 +127,10 @@ Build a proper `custom_component`, not a standalone script:
 
 **Still open**: install + verify on `ha.herzundschrotti.de` itself; `bomo` as a confirmed-working second source; the `home-assistant/brands` icon submission; HACS default-store submission (separate from the custom-repository install that already works); CI workflow; replying to the Dec 2025 community thread once it's confirmed working in production.
 
+**2026-08-14 (cont'd)** — First real production install on `ha.herzundschrotti.de` immediately surfaced a real bug: synced events on the target Google Calendar cut off after the current month, even though both source calendars (waste + bomo) have events further out in HA itself. Root cause was `DEFAULT_SYNC_WINDOW_DAYS = 30` in `const.py` - a 30-day rolling window is nowhere near enough for something like waste collection where seeing months ahead is the actual point. Bumped the default to 365 days. Not currently exposed as a config option in either flow (`CONF_SYNC_WINDOW_DAYS` has existed in `const.py` since the original scaffold but was never wired into `config_flow.py` or `options` - it's always been the hardcoded default in practice); revisit making it user-configurable if a year turns out to be wrong for someone else's use case. Bumped to **v0.1.1** so the already-installed production instance can update via HACS.
+
+**Worth watching**: a year-long window means significantly more events per sync than the 30-day default ever produced (waste collection alone could be 100+ events/year), and the coordinator still has no batching/backoff on the Google API calls (flagged in the security/clean-code review, deliberately deferred as bigger scope than that pass) - each event is still one sequential create/delete call. Should still comfortably fit inside the default 20-minute sync interval, but worth confirming actual sync duration in production logs rather than assuming.
+
 ---
 
 *This notebook is meant to keep growing across sessions — append new log entries at the bottom of section 6 rather than rewriting history, so the "why" behind decisions stays visible.*
