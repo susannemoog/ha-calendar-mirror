@@ -1,6 +1,6 @@
 {
   "domain": "calendar_mirror",
-  "name": "Calendar Mirror",
+  "name": "Mirror to Google Calendar",
   "codeowners": ["@YOUR_GITHUB_USERNAME"],
   "config_flow": true,
   "dependencies": ["application_credentials"],

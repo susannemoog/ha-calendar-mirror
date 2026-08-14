@@ -1,0 +1,25 @@
+# Trimmed from home-assistant/core's own .pre-commit-config.yaml
+# (checked 2026-08-14) down to what's relevant for a small custom
+# component - dropped core-only hooks (zizmor, yamllint, prettier's
+# workflow-lockfile handling) that don't apply here.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        args:
+          - --fix
+      - id: ruff-format
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.3
+    hooks:
+      - id: codespell
+        args:
+          - --ignore-words-list=hass
+        exclude_types: [json]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

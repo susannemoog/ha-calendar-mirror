@@ -8,33 +8,45 @@ Ports the logic from the original prototype script
     reusing the OAuth2 session HA's config_entry_oauth2_flow already
     manages for us.
 
-STATUS: skeleton / not yet tested against a live instance. The exact
-gcal_sync create/delete event method names and request/response shapes
-need verification against gcal_sync.api docs
-(https://allenporter.github.io/gcal_sync/gcal_sync/api.html) before this
-is trusted - documented confirmed methods so far: async_get_calendar,
-ListEventsRequest for reading. Create/delete method names are TODOs
-below, marked explicitly rather than guessed with false confidence.
+STATUS: create/delete/list calls below are verified against the real
+gcal_sync source (github.com/allenporter/gcal_sync, gcal_sync/api.py and
+gcal_sync/model.py, checked 2026-08-13) rather than guessed:
+  - GoogleCalendarService.async_create_event(calendar_id, event: Event) -> None
+  - GoogleCalendarService.async_delete_event(calendar_id, event_id) -> None
+  - GoogleCalendarService.async_list_events(request: ListEventsRequest)
+    -> ListEventsResponse, whose `__aiter__` yields *pages*
+    (ListEventsResponse objects), each with an `.items: list[Event]`
+    property - NOT individual Event objects. The original skeleton's
+    `async for event in result` was wrong for this reason (see notebook
+    gotchas).
+  - gcal_sync.model.Event requires `start`/`end` as DateOrDatetime;
+    DateOrDatetime.parse(date_or_datetime) builds the right one from a
+    plain `datetime.date` or `datetime.datetime`.
+
+Source-side event shape: HA's `calendar.get_events` service (internal
+service call, not the REST API) returns events built by
+`_list_events_dict_factory` in HA core's `calendar/__init__.py`, which
+flattens `start`/`end` to plain ISO 8601 strings (e.g. "2026-08-13" for
+all-day, "2026-08-13T10:00:00+02:00" for timed) - NOT the nested
+`{"date": ...}` / `{"dateTime": ...}` shape documented in the notebook's
+gotchas section. That gotcha is real but applies to the *REST* API the
+original prototype script hit from outside HA; the internal service call
+used here has a different (flatter) response shape. Distinguish all-day
+vs timed by checking for "T" in the string, since a plain `date.isoformat()`
+never contains one.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 import logging
 
 from gcal_sync.api import GoogleCalendarService, ListEventsRequest
-
+from gcal_sync.model import DateOrDatetime, Event as GoogleEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import (
-    CONF_SOURCE_CALENDARS,
-    CONF_SYNC_WINDOW_DAYS,
-    CONF_TARGET_CALENDAR_ID,
-    DEFAULT_SYNC_WINDOW_DAYS,
-    DOMAIN,
-    SYNC_TAG,
-)
+from .const import DEFAULT_SYNC_WINDOW_DAYS, DOMAIN, SYNC_TAG
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,12 +57,14 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
     def __init__(
         self,
         hass: HomeAssistant,
+        *,
         google_service: GoogleCalendarService,
         source_calendars: list[str],
         target_calendar_id: str,
         sync_window_days: int = DEFAULT_SYNC_WINDOW_DAYS,
         update_interval: timedelta | None = None,
     ) -> None:
+        """Initialize the coordinator."""
         super().__init__(
             hass,
             _LOGGER,
@@ -64,7 +78,7 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
 
     async def _async_update_data(self) -> None:
         """Run one full sync pass: clear previously-synced events, recreate from sources."""
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         end = start + timedelta(days=self._sync_window_days)
 
         await self._clear_previously_synced_events(start, end)
@@ -102,40 +116,45 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
     async def _clear_previously_synced_events(
         self, start: datetime, end: datetime
     ) -> None:
-        """Delete events in the target calendar previously created by us.
-
-        TODO: verify exact gcal_sync request/response classes for listing
-        and deleting events - ListEventsRequest is confirmed for reads,
-        but the delete call's exact method name
-        (async_delete_event? something else?) needs checking against
-        gcal_sync.api before this is trusted to run unattended.
-        """
+        """Delete events in the target calendar previously created by us."""
         request = ListEventsRequest(
             calendar_id=self._target_calendar_id,
             start_time=start,
             end_time=end,
         )
         result = await self._google_service.async_list_events(request)
-        async for event in result:
-            if SYNC_TAG in (event.description or ""):
-                # TODO: confirm this is the real method/signature
-                await self._google_service.async_delete_event(
-                    calendar_id=self._target_calendar_id,
-                    event_id=event.id,
-                )
+        # `result` iterates *pages*, each exposing its events via `.items`
+        # - see module docstring for why this isn't `async for event in result`.
+        async for page in result:
+            for event in page.items:
+                if event.id and SYNC_TAG in (event.description or ""):
+                    await self._google_service.async_delete_event(
+                        calendar_id=self._target_calendar_id,
+                        event_id=event.id,
+                    )
 
     async def _create_target_event(self, ha_event: dict, source_entity: str) -> None:
-        """Create one event in the target Google Calendar.
-
-        TODO: confirm gcal_sync's event creation call/model - likely an
-        Event dataclass passed to something like async_create_event,
-        but not yet verified against a live run.
-        """
+        """Create one event in the target Google Calendar."""
         summary = ha_event.get("summary", "(no title)")
         description = f"{SYNC_TAG} from {source_entity}\n\n{ha_event.get('description') or ''}".strip()
 
-        # TODO: build the actual gcal_sync Event object here once the
-        # exact model is confirmed, then call the real create method.
-        raise NotImplementedError(
-            "Event creation not yet wired up to gcal_sync - see TODOs above"
+        event = GoogleEvent(
+            summary=summary,
+            description=description,
+            start=DateOrDatetime.parse(_parse_ha_event_datetime(ha_event["start"])),
+            end=DateOrDatetime.parse(_parse_ha_event_datetime(ha_event["end"])),
         )
+        await self._google_service.async_create_event(self._target_calendar_id, event)
+
+
+def _parse_ha_event_datetime(value: str) -> date | datetime:
+    """Parse a start/end value from HA's calendar.get_events service response.
+
+    These are flat ISO 8601 strings (see module docstring) - a bare date
+    for all-day events, a full datetime for timed ones. A `date.isoformat()`
+    never contains "T"; `datetime.isoformat()` always does, so that's a
+    reliable discriminator.
+    """
+    if "T" in value:
+        return datetime.fromisoformat(value)
+    return date.fromisoformat(value)

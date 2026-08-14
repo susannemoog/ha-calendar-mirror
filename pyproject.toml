@@ -1,0 +1,92 @@
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "ASYNC",  # flake8-async
+  "B",      # flake8-bugbear
+  "BLE",
+  "C",      # complexity
+  "D",      # docstrings
+  "E",      # pycodestyle
+  "F",      # pyflakes/autoflake
+  "F541",   # f-string without any placeholders
+  "FLY",    # flynt
+  "FURB",   # refurb
+  "G",      # flake8-logging-format
+  "I",      # isort
+  "ICN001", # import conventions; {name} should be imported as {asname}
+  "INP",    # flake8-no-pep420
+  "ISC",    # flake8-implicit-str-concat
+  "LOG",    # flake8-logging
+  "N804",   # First argument of a class method should be named cls
+  "N805",   # First argument of a method should be named self
+  "N806",   # Variable {name} in function should be snake_case
+  "PERF",   # Perflint
+  "PGH",    # pygrep-hooks
+  "PIE",    # flake8-pie
+  "PL",     # pylint
+  "PT",     # flake8-pytest-style
+  "PTH",    # flake8-pathlib
+  "RET",    # flake8-return
+  "RSE",    # flake8-raise
+  "RUF",    # Ruff-specific rules (see `ignore` for exclusions)
+  "SIM",    # flake8-simplify
+  "SLF",    # flake8-self
+  "SLOT",   # flake8-slots
+  "T20",    # flake8-print
+  "TID",    # Tidy imports
+  "TRY",    # tryceratops
+  "UP",     # pyupgrade
+  "UP031",  # Use format specifiers instead of percent format
+  "UP032",  # Use f-string instead of `format` call
+  "W",      # pycodestyle
+]
+
+# Trimmed from HA core's own pyproject.toml (checked 2026-08-14) down to
+# rules that are actually reachable in a small custom_component - dropped
+# core-only concerns (PLATFORM_SCHEMA import aliases, generated-code
+# exclusions, etc.) but kept the same rule *codes* so behavior matches.
+ignore = [
+  "D202",    # No blank lines allowed after function docstring
+  "D203",    # 1 blank line required before class docstring
+  "D213",    # Multi-line docstring summary should start at the second line
+  "D406",    # Section name should end with a newline
+  "D407",    # Section name underlining
+  "D417",    # Missing argument descriptions in docstring
+  "E501",    # line too long (formatter handles this)
+  "PLR0911", # Too many return statements
+  "PLR0912", # Too many branches
+  "PLR0913", # Too many arguments to function call
+  "PLR0915", # Too many statements
+  "PLR2004", # Magic value used in comparison
+  "PT011",   # pytest.raises() is too broad, set the `match` parameter
+  "SIM108",  # Use ternary operator instead of if-else-block
+
+  # Conflicts with the formatter, see
+  # https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+  "W191",
+  "E111",
+  "E114",
+  "E117",
+  "D206",
+  "D300",
+  "Q",
+  "COM812",
+  "COM819",
+]
+
+[tool.ruff.lint.flake8-import-conventions.extend-aliases]
+voluptuous = "vol"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components.calendar_mirror"]
+combine-as-imports = true
+split-on-trailing-comma = false

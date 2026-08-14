@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "pick_implementation": {
+        "title": "Pick authentication method"
+      },
+      "source_calendars": {
+        "title": "Choose source calendars",
+        "description": "Select the Home Assistant calendar entities to mirror into Google Calendar.",
+        "data": {
+          "source_calendars": "Source calendars"
+        }
+      },
+      "target_calendar": {
+        "title": "Choose target calendar",
+        "description": "Pick which of your Google Calendars to sync events into. If your calendars couldn't be loaded, enter a calendar ID manually instead (use \"primary\" for your main calendar, or the calendar's address from Google Calendar settings).",
+        "data": {
+          "target_calendar_id": "Target calendar"
+        }
+      }
+    },
+    "error": {
+      "no_calendars_selected": "Select at least one source calendar.",
+      "invalid_calendar_id": "Enter a target calendar ID."
+    },
+    "abort": {
+      "already_configured": "Account is already configured",
+      "oauth_error": "Received invalid token data.",
+      "oauth_failed": "Error while obtaining access token.",
+      "oauth_timeout": "Timeout resolving OAuth token.",
+      "oauth_unauthorized": "OAuth authorization error while obtaining access token.",
+      "missing_configuration": "The component is not configured. Please follow the documentation.",
+      "authorize_url_timeout": "Timeout generating authorize URL.",
+      "no_url_available": "No URL available. For information about this error, check the help section.",
+      "user_rejected_authorize": "Account linking rejected: {error}",
+      "missing_credentials": "The integration requires credentials to be set up before it can be used. Add the credentials, then try again."
+    },
+    "create_entry": {
+      "default": "Successfully authenticated"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Reconfigure Calendar Mirror",
+        "description": "Change which Home Assistant calendars are mirrored and which Google Calendar they sync into.",
+        "data": {
+          "source_calendars": "Source calendars",
+          "target_calendar_id": "Target calendar"
+        }
+      }
+    },
+    "error": {
+      "no_calendars_selected": "Select at least one source calendar.",
+      "invalid_calendar_id": "Enter a target calendar ID."
+    }
+  },
+  "application_credentials": {
+    "description": "Follow the [instructions]({more_info_url}) for setting up a Google API OAuth client. You will need to create credentials with a **Web application** type authorized to redirect to `https://my.home-assistant.io/redirect/oauth`.\n\nTo be able to configure Calendar Mirror you first need to set up access to the [Google Cloud Console]({oauth_creds_url}) and enable the Calendar API on the [consent screen]({oauth_consent_url})."
+  }
+}

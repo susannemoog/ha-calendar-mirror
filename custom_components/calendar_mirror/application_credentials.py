@@ -23,7 +23,18 @@ async def async_get_authorization_server(hass: HomeAssistant) -> AuthorizationSe
     )
 
 
-# TODO: verify against current HA dev docs whether
-# async_get_description_placeholders is still needed/expected here for
-# custom (non-core) integrations - this varies by HA version and wasn't
-# confirmed against a live instance.
+async def async_get_description_placeholders(hass: HomeAssistant) -> dict[str, str]:
+    """Return description placeholders for the credentials setup dialog.
+
+    Confirmed still in active use against HA core's own Google integration
+    (homeassistant/components/google/application_credentials.py, checked
+    2026-08-13) - referenced from strings.json's
+    application_credentials.description via {oauth_creds_url} etc.
+    """
+    return {
+        "oauth_consent_url": (
+            "https://console.cloud.google.com/apis/credentials/consent"
+        ),
+        "oauth_creds_url": "https://console.cloud.google.com/apis/credentials",
+        "more_info_url": "https://github.com/YOUR_GITHUB_USERNAME/ha-calendar-mirror",
+    }

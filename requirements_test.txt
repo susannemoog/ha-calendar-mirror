@@ -1,0 +1,2 @@
+pytest-homeassistant-custom-component
+gcal-sync>=9.1.0
