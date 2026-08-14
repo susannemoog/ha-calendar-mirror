@@ -7,8 +7,17 @@ widget can display them. Started because Echo Show has no way to read
 arbitrary calendar sources directly — only natively linked Google/Microsoft/
 Apple accounts.
 
-Working name: **`ha-calendar-mirror`** (placeholder, not checked for
-collisions on HACS/PyPI/GitHub yet — do that before publishing).
+Name: **`ha-calendar-mirror`** (GitHub repo) / domain **`calendar_mirror`**
+(HA integration) / **"Mirror to Google Calendar"** (HA-facing display
+name). Checked 2026-08-14, before making the repo public: no other
+GitHub repo named `ha-calendar-mirror` or `calendar-mirror`, no other HA
+custom integration using the `calendar_mirror` domain (searched GitHub
+code search for `manifest.json` files declaring it), nothing matching in
+HACS's default store list, and no `calendar-mirror`/`calendar_mirror`
+package on PyPI (not that this matters for distribution - this ships as
+a HACS custom_component, not a PyPI package, so the PyPI check in the
+original note was based on a misunderstanding of how this gets
+distributed). Clear to publish under this name.
 
 ---
 
@@ -57,10 +66,12 @@ Build a proper `custom_component`, not a standalone script:
 - [x] Port sync logic from the prototype script into a `DataUpdateCoordinator`
 - [x] Test suite (`pytest-homeassistant-custom-component`) covering coordinator, config flow, and auth bridge
 - [x] Verified locally against a real (non-mocked) HA instance: loads clean, config flow registers and initiates correctly
-- [ ] Complete a real Google OAuth login locally and exercise source/target calendar picker + a real sync
-- [ ] Local testing against Susi's real calendars (`waste_collection_schedule_bremer_stadtreinigung`, `bomo`) on `ha.herzundschrotti.de`
-- [ ] Write README with setup instructions, aimed at the level of detail the community thread poster would need
-- [ ] Publish to a public GitHub repo, submit to HACS default repo list
+- [x] Complete a real Google OAuth login locally and exercise source/target calendar picker + a real sync
+- [x] Local testing against Susi's real calendars (`waste_collection_schedule_bremer_stadtreinigung`, `bomo`) - on the local dev instance; **not yet on `ha.herzundschrotti.de` itself**, see below
+- [x] Write README with setup instructions, aimed at the level of detail the community thread poster would need
+- [x] Clean-code/security review before publishing
+- [ ] Publish to a public GitHub repo (in progress this session), submit to HACS default repo list (later - custom-repository install doesn't require default-store submission)
+- [ ] Install via HACS custom repository on `ha.herzundschrotti.de` and confirm it works on the real production instance, not just the local dev one
 - [ ] Reply to the Dec 2025 community thread once there's something installable
 - [ ] (Stretch) CalDAV as a second target type, generalizing beyond Google
 
