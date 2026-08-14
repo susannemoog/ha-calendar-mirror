@@ -139,6 +139,12 @@ The `v0.1.1` update also surfaced a real HACS/HA gotcha, not a code bug - see go
 
 **Still open**: the `home-assistant/brands` icon submission; HACS default-store submission; replying to the Dec 2025 community thread now that it's confirmed working in production.
 
+**2026-08-14 (cont'd)** — CI's Validate workflow immediately caught the first real Dependabot PR (ruff 0.16.1 → 0.16.2, merged) and, separately, two real gaps of its own: HACS validation was failing on missing repo topics (fixed - added some) and a literal URL in `strings.json`'s `application_credentials.description` that hassfest correctly rejects (confirmed against HA core's own `google` integration strings.json - it never embeds a literal URL either, always routes through a `{placeholder}` - added an `OAUTH2_REDIRECT_URI` const and `redirect_uri` placeholder to match). Also enabled Dependabot (daily, GitHub Actions + pip) and, importantly, the separate repo-level toggles that actually make it do anything for security: Dependabot security updates and secret scanning + push protection were all off by default even with a `dependabot.yml` present - `dependabot.yml` alone only covers routine version-bump PRs, not vulnerability scanning. Also bumped `actions/checkout`/`actions/setup-python` to v7 (confirmed via their `action.yml` they target `node24` natively) after CI logged a Node 20 deprecation warning for v4/v5.
+
+Decided to revisit the brand-icon deferral after confirming it's the literal, sole blocker on HACS default-store submission specifically (not just cosmetic - HACS's own submission checklist requires the HACS Action to pass with zero errors, which the missing brand check was failing). No design tool available, so generated a simple icon programmatically (Pillow: a calendar glyph + sync-arrows badge, teal/amber, deliberately distinct from Google's palette) rather than leaving it blocked - `custom_components/calendar_mirror/brand/icon.png` + `icon@2x.png`, the local-inclusion path HA's supported directly since 2026.3.0 (no `home-assistant/brands` PR needed). Confirmed via CI: HACS validation now passes 9/9, hassfest passes - **HACS default-store submission is now actually unblocked**, just not yet done.
+
+**Still open**: HACS default-store submission (PR to `hacs/default`, expect a multi-month review per their own docs); replying to the Dec 2025 community thread.
+
 ---
 
 *This notebook is meant to keep growing across sessions — append new log entries at the bottom of section 6 rather than rewriting history, so the "why" behind decisions stays visible.*
