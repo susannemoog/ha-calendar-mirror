@@ -1,63 +1,105 @@
 # Calendar Mirror
 
-A Home Assistant custom integration that mirrors one or more local HA
-calendar entities into an external, write-enabled calendar (starting with
-Google Calendar) — with real create/update/delete sync, not just a
-one-way ICS export. Shows up in Home Assistant's UI as **"Mirror to
-Google Calendar"**.
+A Home Assistant custom integration that pushes one or more local HA
+calendar entities into an external calendar (currently Google Calendar),
+actively creating and deleting events there — not a passive, read-only
+ICS export. Sync is **one-directional**: Home Assistant is always the
+source of truth, and the target calendar is never read back into HA. In
+Home Assistant's UI it's listed as **"Mirror to Google Calendar"**.
 
-**Status: working, tested locally end-to-end** (real OAuth, real source
-calendar, real create/delete sync against a real Google Calendar) but not
-yet installed on a production instance, not yet published to HACS, and
-the icon/branding submission hasn't been done. See
-[`docs/notebook.md`](docs/notebook.md) for the design rationale, prior-art
-research, and running development log.
+## What it does
 
-## Why this exists
+- Reads events from one or more existing `calendar.*` entities in Home
+  Assistant (any source HA already supports: local calendars, CalDAV,
+  other integrations' calendars, etc.).
+- Pushes those events into a Google Calendar of your choice, using
+  [`gcal-sync`](https://github.com/allenporter/gcal_sync) — the same
+  library Home Assistant's own core Google Calendar integration depends
+  on.
+- Runs a full sync pass on a recurring interval: every event it
+  previously created on the target calendar is deleted, then a fresh
+  copy is created from the current source data. There's no in-place
+  update — each sync pass produces new events with new IDs, not edited
+  versions of the old ones. Events on the target calendar it didn't
+  create are left alone.
+- **This means the target calendar is not safe to edit by hand.** Any
+  manual change or deletion made directly on the target calendar —
+  including deleting an event the integration created — is undone on the
+  next sync pass, since the integration has no way to know it was
+  intentional and just rebuilds from HA's current data. Deleting an
+  event in Google Calendar does not delete it in Home Assistant; nothing
+  is ever written back to HA.
+- Authenticates via Home Assistant's standard OAuth2 `application_credentials`
+  flow — the same mechanism the official Google Calendar integration
+  uses, so there's no separate script, browser popup, or manually
+  managed token.
+- Source calendars and the target calendar can be changed after setup
+  via the integration's **Configure** option, without repeating the
+  Google sign-in.
 
-Home Assistant can read calendars from many sources and combine them for
-in-HA display, but there's no supported way to *push* combined events out
-to an external calendar service with proper sync. This matters if you
-want your HA calendar data to show up somewhere HA doesn't control the
-display — a smart speaker's native calendar widget, a family member's
-phone, etc. Concretely: HA's own `calendar.create_event` service exists,
-but there's no generic `calendar.delete_event`, so a naive approach can
-create events but can never clean them up.
+## How it compares to existing options
 
-## How it's different from existing options
+| | Direction | Update latency | Notes |
+|---|---|---|---|
+| [Calendar Merge](https://community.home-assistant.io/t/calendar-merge-combine-multiple-calendar-entities-into-one-hacs/994159), [Aurora Calendar](https://community.home-assistant.io/t/aurora-calendar-family-calendar-integration-and-card/1009402) | Internal only | — | Combine calendars for display inside Home Assistant; don't push anywhere external. |
+| [ha-icalendar](https://github.com/codyc1515/ha-icalendar) | Pull (read-only) | Up to the subscribing app; Google Calendar and Apple Calendar both throttle subscribed ICS feeds to roughly every 12–24 hours, with no manual refresh and no faster setting | Exposes an HA calendar as a subscribable ICS feed. Creates and removals in the source do eventually propagate as the feed is re-fetched, just on that timescale. |
+| **Calendar Mirror** | Push, one-way (HA → Google) | Home Assistant's own sync interval (a few minutes to whatever's configured) | Actively creates and deletes events on the target calendar; HA controls the timing rather than waiting on the target app to poll. Nothing is ever read back from the target into HA. |
 
-- **[Calendar Merge](https://community.home-assistant.io/t/calendar-merge-combine-multiple-calendar-entities-into-one-hacs/994159)** and **[Aurora Calendar](https://community.home-assistant.io/t/aurora-calendar-family-calendar-integration-and-card/1009402)** combine calendars for display *inside* HA — they don't push anywhere external.
-- **[ha-icalendar](https://github.com/codyc1515/ha-icalendar)** exposes an ICS feed, but is documented as only supplying the first upcoming event, and ICS-subscribe is pull-based with slow (often hours-delayed) refresh on the consuming side.
-- This project pushes events with full create/update/delete sync, using [`gcal-sync`](https://github.com/allenporter/gcal_sync) — the same library HA's own core Google Calendar integration depends on.
+This gap exists because Home Assistant's core `calendar.create_event`
+service has no generic counterpart for deleting events, so a naive
+one-way sync built from that service alone can create entries but never
+clean them up.
 
-## Setup
+## Installation
+
+Not yet available in the default HACS store. Add it as a custom
+repository:
+
+1. In HACS: **Integrations → ⋮ → Custom repositories**.
+2. Add this repository's URL with category **Integration**.
+3. Install **Calendar Mirror**, then restart Home Assistant.
+
+Or install manually by copying
+`custom_components/calendar_mirror` into your Home Assistant
+`config/custom_components/` directory and restarting.
+
+## Configuration
 
 1. Create a Google Cloud OAuth client (**Web application** type),
    authorized to redirect to `https://my.home-assistant.io/redirect/oauth`
-   — same process as HA's own Google Calendar integration. Enable the
-   Google Calendar API on the project too.
+   — the same process used for Home Assistant's own Google Calendar
+   integration. Enable the Google Calendar API on the same Cloud
+   project.
 2. In Home Assistant: **Settings → Devices & Services → Application
-   Credentials → Add Credential**, pick "Mirror to Google Calendar", and
-   enter the client ID/secret from step 1.
+   Credentials → Add Credential**, select **Mirror to Google Calendar**,
+   and enter the client ID/secret from step 1.
 3. **Settings → Devices & Services → Add Integration → Mirror to Google
-   Calendar**, then sign in with the Google account whose calendar you
-   want to sync into.
-4. Pick which existing `calendar.*` entities to mirror, and which target
-   Google Calendar to sync into (offered as a dropdown of your writable
-   calendars, or enter an ID manually if the fetch fails).
-5. Done — HA handles the recurring sync internally on a coordinator
-   interval, no external script, cron, or manually-managed token
-   required. Source/target calendars can be changed later via the
-   integration's **Configure** button, without redoing the Google login.
+   Calendar**, then sign in with the Google account that owns the target
+   calendar.
+4. Choose which `calendar.*` entities to mirror, and which Google
+   Calendar to sync into — offered as a dropdown of calendars you can
+   write to, or enter a calendar ID manually.
+5. Home Assistant handles the recurring sync from there. To change the
+   source or target calendars later, use the integration's **Configure**
+   option.
 
-## Contributing / status
+## Requirements
 
-Functional and covered by a test suite (`pytest-homeassistant-custom-component`),
-verified locally against a real Google Calendar and a real waste-collection
-source calendar — but not yet installed on a production HA instance, not
-yet published to HACS, and it doesn't have official branding/icons yet
-(see notebook for what's still open). Contributions and testing on other
-calendar sources welcome.
+- A Google Cloud project with the Calendar API enabled and an OAuth
+  client, as described above.
+- One or more `calendar.*` entities already available in Home Assistant
+  to use as sources.
+
+## Design notes
+
+Background on why this integration exists, prior-art research, and
+architecture decisions live in [`docs/notebook.md`](docs/notebook.md).
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for code style and commit
+conventions. Contributions and testing against other source calendar
+types are welcome.
 
 ## License
 
