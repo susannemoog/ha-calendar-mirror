@@ -55,3 +55,13 @@ Run `pytest` before submitting - see `tests/` for existing coverage
 using `pytest-homeassistant-custom-component`, matching HA's own testing
 conventions (mocked config entries, `hass`/`aioclient_mock` fixtures,
 etc.) rather than a bespoke test setup.
+
+## CI
+
+GitHub Actions runs on every push and pull request:
+
+- `.github/workflows/test.yml` - `pytest` and `ruff check`/`ruff format --check`
+- `.github/workflows/validate.yml` - [HACS](https://www.hacs.xyz/docs/publish/action/)
+  and [hassfest](https://github.com/home-assistant/actions/tree/master/hassfest)
+  repository/manifest validation (also runs daily via `schedule`, since
+  these can start failing from upstream changes even with no changes here)

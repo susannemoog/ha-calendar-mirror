@@ -1,2 +1,3 @@
 pytest-homeassistant-custom-component
 gcal-sync>=9.1.0
+ruff==0.16.1
