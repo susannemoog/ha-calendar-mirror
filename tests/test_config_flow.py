@@ -13,13 +13,16 @@ service, to exercise the real request/response parsing too.
 """
 
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import AbortFlow, FlowResultType
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from custom_components.calendar_mirror.config_flow import CalendarMirrorConfigFlow
 from custom_components.calendar_mirror.const import (
     CONF_SOURCE_CALENDARS,
     CONF_TARGET_CALENDAR_ID,
+    DOMAIN,
 )
 
 OAUTH_DATA = {
@@ -48,6 +51,12 @@ CALENDAR_LIST_RESPONSE = {
 def _new_flow(hass: HomeAssistant) -> CalendarMirrorConfigFlow:
     flow = CalendarMirrorConfigFlow()
     flow.hass = hass
+    # `context`/`handler` are normally set by the real flow manager during
+    # async_init(); async_set_unique_id()/_abort_if_unique_id_configured()
+    # need both, so tests that reach async_step_target_calendar() with a
+    # valid ID must set them up manually here.
+    flow.context = {}
+    flow.handler = DOMAIN
     return flow
 
 
@@ -192,6 +201,26 @@ class TestTargetCalendarStep:
         ]
         assert result["data"][CONF_TARGET_CALENDAR_ID] == "primary"
         assert result["data"]["token"] == OAUTH_DATA["token"]
+
+    async def test_aborts_if_target_calendar_already_configured(
+        self, hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    ) -> None:
+        """A second entry targeting the same calendar must not be allowed.
+
+        Two entries syncing into the same calendar would delete each
+        other's events on every pass (see coordinator's per-entry tag
+        scoping) - this is the setup-time guard against that ever
+        happening in the first place.
+        """
+        MockConfigEntry(domain=DOMAIN, unique_id="primary").add_to_hass(hass)
+        _mock_calendar_list(aioclient_mock)
+        flow = _new_flow(hass)
+        flow._oauth_data = OAUTH_DATA  # noqa: SLF001
+        flow._source_calendars = ["calendar.waste"]  # noqa: SLF001
+
+        with pytest.raises(AbortFlow) as exc_info:
+            await flow.async_step_target_calendar({CONF_TARGET_CALENDAR_ID: "primary"})
+        assert exc_info.value.reason == "already_configured"
 
     async def test_strips_whitespace_from_calendar_id(
         self, hass: HomeAssistant, aioclient_mock: AiohttpClientMocker

@@ -42,8 +42,10 @@ from datetime import UTC, date, datetime, timedelta
 import logging
 
 from gcal_sync.api import GoogleCalendarService, ListEventsRequest
+from gcal_sync.exceptions import AuthException
 from gcal_sync.model import DateOrDatetime, Event as GoogleEvent
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DEFAULT_SYNC_WINDOW_DAYS, DOMAIN, SYNC_TAG, SYNC_TITLE_PREFIX
@@ -58,6 +60,7 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
         self,
         hass: HomeAssistant,
         *,
+        entry_id: str,
         google_service: GoogleCalendarService,
         source_calendars: list[str],
         target_calendar_id: str,
@@ -75,20 +78,45 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
         self._source_calendars = source_calendars
         self._target_calendar_id = target_calendar_id
         self._sync_window_days = sync_window_days
+        # Scoped per config entry so two entries never delete each other's
+        # events even if they somehow end up pointed at the same target
+        # calendar (the config flow also blocks that at setup time - this
+        # is defense in depth, not the primary guard).
+        self._sync_tag = f"{SYNC_TAG}:{entry_id}"
 
     async def _async_update_data(self) -> None:
         """Run one full sync pass: clear previously-synced events, recreate from sources."""
         start = datetime.now(UTC)
         end = start + timedelta(days=self._sync_window_days)
 
-        await self._clear_previously_synced_events(start, end)
+        try:
+            await self._clear_previously_synced_events(start, end)
 
-        total = 0
-        for entity_id in self._source_calendars:
-            events = await self._get_ha_events(entity_id, start, end)
-            for event in events:
-                await self._create_target_event(event, entity_id)
-                total += 1
+            total = 0
+            for entity_id in self._source_calendars:
+                # One source calendar being temporarily unavailable
+                # shouldn't stop the others from syncing -
+                # HomeAssistantError covers the errors calendar.get_events
+                # itself is documented to raise (unknown entity,
+                # unavailable, etc.). Google API calls aren't wrapped here
+                # since an AuthException from those means every subsequent
+                # call would fail identically - no point isolating those.
+                try:
+                    events = await self._get_ha_events(entity_id, start, end)
+                except HomeAssistantError as err:
+                    _LOGGER.warning(
+                        "Skipping %s after error reading its events: %s",
+                        entity_id,
+                        err,
+                    )
+                    continue
+                for event in events:
+                    await self._create_target_event(event, entity_id)
+                    total += 1
+        except AuthException as err:
+            raise ConfigEntryAuthFailed(
+                "Google authorization expired or was revoked"
+            ) from err
 
         _LOGGER.debug(
             "Calendar Mirror: synced %d events from %d source calendars",
@@ -127,7 +155,7 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
         # - see module docstring for why this isn't `async for event in result`.
         async for page in result:
             for event in page.items:
-                if event.id and SYNC_TAG in (event.description or ""):
+                if event.id and self._sync_tag in (event.description or ""):
                     await self._google_service.async_delete_event(
                         calendar_id=self._target_calendar_id,
                         event_id=event.id,
@@ -137,7 +165,7 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
         """Create one event in the target Google Calendar."""
         summary = SYNC_TITLE_PREFIX + ha_event.get("summary", "(no title)")
         description = (
-            f"{SYNC_TAG} Synced automatically from Home Assistant ({source_entity}). "
+            f"{self._sync_tag} Synced automatically from Home Assistant ({source_entity}). "
             "Edits or deletions made here will be overwritten on the next sync - "
             f"edit the source in Home Assistant instead.\n\n"
             f"{ha_event.get('description') or ''}"

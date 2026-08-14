@@ -94,6 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = CalendarMirrorCoordinator(
         hass,
+        entry_id=entry.entry_id,
         google_service=google_service,
         source_calendars=config.get(CONF_SOURCE_CALENDARS, []),
         target_calendar_id=config.get(CONF_TARGET_CALENDAR_ID, ""),

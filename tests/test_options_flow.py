@@ -110,6 +110,26 @@ class TestOptionsFlowInit:
             "calendar.new_two",
         ]
         assert result["data"][CONF_TARGET_CALENDAR_ID] == "primary"
+        assert entry.unique_id == "primary"
+
+    async def test_rejects_target_already_used_by_another_entry(
+        self, hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    ) -> None:
+        """Reconfiguring into a calendar another entry already targets must be blocked."""
+        aioclient_mock.get(CALENDAR_LIST_URL, json=CALENDAR_LIST_RESPONSE)
+        MockConfigEntry(domain=DOMAIN, unique_id="primary").add_to_hass(hass)
+        entry = await _setup_entry(hass)
+        flow = _new_options_flow(hass, entry)
+
+        result = await flow.async_step_init(
+            {
+                CONF_SOURCE_CALENDARS: ["calendar.new_one"],
+                CONF_TARGET_CALENDAR_ID: "primary",
+            }
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {"base": "target_already_configured"}
 
     async def test_no_calendars_selected_shows_error(
         self, hass: HomeAssistant, aioclient_mock: AiohttpClientMocker

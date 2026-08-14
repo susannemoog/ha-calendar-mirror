@@ -1,12 +1,12 @@
 {
   "domain": "calendar_mirror",
   "name": "Mirror to Google Calendar",
-  "codeowners": ["@YOUR_GITHUB_USERNAME"],
+  "codeowners": ["@susannemoog"],
   "config_flow": true,
   "dependencies": ["application_credentials"],
-  "documentation": "https://github.com/YOUR_GITHUB_USERNAME/ha-calendar-mirror",
+  "documentation": "https://github.com/susannemoog/ha-calendar-mirror",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/YOUR_GITHUB_USERNAME/ha-calendar-mirror/issues",
+  "issue_tracker": "https://github.com/susannemoog/ha-calendar-mirror/issues",
   "requirements": ["gcal-sync>=9.1.0"],
-  "version": "0.0.1"
+  "version": "0.1.0"
 }

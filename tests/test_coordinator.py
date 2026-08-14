@@ -16,8 +16,10 @@ from gcal_sync.api import (
     ListEventsResponse,
     _ListEventsResponseModel,
 )
+from gcal_sync.exceptions import AuthException
 from gcal_sync.model import DateOrDatetime, Event as GoogleEvent
 from homeassistant.core import ServiceCall, SupportsResponse
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 import pytest
 
 from custom_components.calendar_mirror.const import SYNC_TAG, SYNC_TITLE_PREFIX
@@ -25,6 +27,9 @@ from custom_components.calendar_mirror.coordinator import (
     CalendarMirrorCoordinator,
     _parse_ha_event_datetime,
 )
+
+TEST_ENTRY_ID = "test-entry-id"
+TEST_SYNC_TAG = f"{SYNC_TAG}:{TEST_ENTRY_ID}"
 
 
 def _make_google_event(event_id: str, description: str | None) -> GoogleEvent:
@@ -59,6 +64,7 @@ def coordinator(hass, mock_google_service: MagicMock) -> CalendarMirrorCoordinat
     """Return a coordinator wired up with the mocked Google service."""
     return CalendarMirrorCoordinator(
         hass,
+        entry_id=TEST_ENTRY_ID,
         google_service=mock_google_service,
         source_calendars=["calendar.test_source"],
         target_calendar_id="target@example.com",
@@ -92,7 +98,7 @@ class TestClearPreviouslySyncedEvents:
         mock_google_service: MagicMock,
     ) -> None:
         """Events without our sync tag must never be deleted."""
-        tagged = _make_google_event("tagged-1", f"{SYNC_TAG} from calendar.foo")
+        tagged = _make_google_event("tagged-1", f"{TEST_SYNC_TAG} from calendar.foo")
         untagged = _make_google_event("untagged-1", "A manually created event")
         no_description = _make_google_event("no-desc-1", None)
         mock_google_service.async_list_events.return_value = _make_list_events_response(
@@ -108,6 +114,29 @@ class TestClearPreviouslySyncedEvents:
             event_id="tagged-1",
         )
 
+    async def test_does_not_delete_another_entrys_synced_events(
+        self,
+        coordinator: CalendarMirrorCoordinator,
+        mock_google_service: MagicMock,
+    ) -> None:
+        """Two config entries sharing a target calendar must not delete each other's events.
+
+        Regression test for the tag being scoped per config entry
+        (`SYNC_TAG:{entry_id}`) rather than a single global marker.
+        """
+        other_entrys_event = _make_google_event(
+            "other-entry-1", f"{SYNC_TAG}:some-other-entry-id from calendar.foo"
+        )
+        mock_google_service.async_list_events.return_value = _make_list_events_response(
+            [other_entrys_event]
+        )
+
+        start = datetime.now(UTC)
+        end = start + timedelta(days=30)
+        await coordinator._clear_previously_synced_events(start, end)  # noqa: SLF001
+
+        mock_google_service.async_delete_event.assert_not_awaited()
+
     async def test_paginated_results_all_checked(
         self,
         coordinator: CalendarMirrorCoordinator,
@@ -119,9 +148,11 @@ class TestClearPreviouslySyncedEvents:
         pages and their `.items`, not treat the result as an async iterator
         of events directly.
         """
-        page1 = _make_list_events_response([_make_google_event("p1-tagged", SYNC_TAG)])
+        page1 = _make_list_events_response(
+            [_make_google_event("p1-tagged", TEST_SYNC_TAG)]
+        )
         page2_model = _ListEventsResponseModel(
-            items=[_make_google_event("p2-tagged", SYNC_TAG)]
+            items=[_make_google_event("p2-tagged", TEST_SYNC_TAG)]
         )
 
         async def fake_get_next_page(page_token: str | None):
@@ -246,4 +277,63 @@ class TestAsyncUpdateData:
 
         assert len(get_events_calls) == 1
         assert get_events_calls[0].data["entity_id"] == "calendar.test_source"
+        mock_google_service.async_create_event.assert_awaited_once()
+
+    async def test_auth_failure_triggers_reauth(
+        self,
+        coordinator: CalendarMirrorCoordinator,
+        mock_google_service: MagicMock,
+    ) -> None:
+        """An expired/revoked Google grant should surface as ConfigEntryAuthFailed.
+
+        DataUpdateCoordinator turns this specific exception into HA's
+        standard "reauthenticate" prompt - a generic exception would not.
+        """
+        mock_google_service.async_list_events.side_effect = AuthException(
+            "token revoked"
+        )
+
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_data()  # noqa: SLF001
+
+    async def test_one_bad_source_does_not_block_others(
+        self, hass, mock_google_service: MagicMock
+    ) -> None:
+        """One source calendar erroring shouldn't prevent the others from syncing."""
+        mock_google_service.async_list_events.return_value = _make_list_events_response(
+            []
+        )
+        coordinator = CalendarMirrorCoordinator(
+            hass,
+            entry_id=TEST_ENTRY_ID,
+            google_service=mock_google_service,
+            source_calendars=["calendar.bad_source", "calendar.good_source"],
+            target_calendar_id="target@example.com",
+            sync_window_days=30,
+        )
+
+        async def fake_get_events(call: ServiceCall) -> dict:
+            if call.data["entity_id"] == "calendar.bad_source":
+                raise HomeAssistantError("calendar.bad_source is unavailable")
+            return {
+                "calendar.good_source": {
+                    "events": [
+                        {
+                            "summary": "Still works",
+                            "start": "2026-08-20",
+                            "end": "2026-08-21",
+                        }
+                    ]
+                }
+            }
+
+        hass.services.async_register(
+            "calendar",
+            "get_events",
+            fake_get_events,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+        await coordinator._async_update_data()  # noqa: SLF001
+
         mock_google_service.async_create_event.assert_awaited_once()

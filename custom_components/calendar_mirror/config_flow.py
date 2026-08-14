@@ -25,6 +25,7 @@ step."), confirmed against source 2026-08-13.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
@@ -32,6 +33,7 @@ from gcal_sync.api import GoogleCalendarService
 from gcal_sync.exceptions import ApiException
 from gcal_sync.model import AccessRole, Calendar
 from homeassistant.config_entries import (
+    SOURCE_REAUTH,
     ConfigEntry,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -96,23 +98,55 @@ class CalendarMirrorConfigFlow(
 
         access_type=offline + prompt=consent so we reliably get a refresh
         token back, not just a short-lived access token.
+
+        Scope is deliberately narrower than the blanket `calendar` scope:
+        `calendar.events` covers create/read/delete on events (all the
+        sync itself needs), and `calendar.calendarlist.readonly` covers
+        listing calendars for the target-calendar picker. Neither grants
+        calendar management (create/delete/rename whole calendars, change
+        sharing/ACLs) the way the full `calendar` scope would. Verified
+        against Google's OAuth 2.0 scopes reference, checked 2026-08-14.
         """
         return {
             "access_type": "offline",
             "prompt": "consent",
-            "scope": "https://www.googleapis.com/auth/calendar",
+            "scope": (
+                "https://www.googleapis.com/auth/calendar.events "
+                "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+            ),
         }
 
     async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:
         """Called after successful OAuth2 authorization.
 
-        Stash the OAuth token data and move into the source-calendar-picker
-        step rather than creating the entry immediately - the entry is
-        only created once source calendars and a target calendar ID have
-        also been collected.
+        On a fresh setup, stash the OAuth token data and move into the
+        source-calendar-picker step rather than creating the entry
+        immediately - the entry is only created once source calendars and
+        a target calendar ID have also been collected. On reauth (Google
+        access expired or was revoked), source/target calendars are
+        already configured - just refresh the token on the existing entry
+        and reload it.
         """
+        if self.source == SOURCE_REAUTH:
+            return self.async_update_reload_and_abort(
+                self._get_reauth_entry(), data=data
+            )
         self._oauth_data = data
         return await self.async_step_source_calendars()
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Perform reauth when Google access has expired or been revoked."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm reauth, then redirect into the standard OAuth flow."""
+        if user_input is None:
+            return self.async_show_form(step_id="reauth_confirm")
+        return await self.async_step_user()
 
     async def async_step_source_calendars(
         self, user_input: dict[str, Any] | None = None
@@ -152,6 +186,12 @@ class CalendarMirrorConfigFlow(
             if not target_calendar_id:
                 errors["base"] = "invalid_calendar_id"
             else:
+                # Two entries syncing into the same target calendar would
+                # fight each other on every sync pass - each only
+                # recognizes its own events, so it'd delete the other's.
+                await self.async_set_unique_id(target_calendar_id)
+                self._abort_if_unique_id_configured()
+
                 assert self._oauth_data is not None
                 assert self._source_calendars is not None
                 return self.async_create_entry(
@@ -218,7 +258,12 @@ class CalendarMirrorOptionsFlow(OptionsFlowWithReload):
                 errors["base"] = "no_calendars_selected"
             elif not target_calendar_id:
                 errors["base"] = "invalid_calendar_id"
+            elif self._target_calendar_used_elsewhere(target_calendar_id):
+                errors["base"] = "target_already_configured"
             else:
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, unique_id=target_calendar_id
+                )
                 return self.async_create_entry(
                     data={
                         CONF_SOURCE_CALENDARS: selected,
@@ -245,6 +290,19 @@ class CalendarMirrorOptionsFlow(OptionsFlowWithReload):
                 }
             ),
             errors=errors,
+        )
+
+    def _target_calendar_used_elsewhere(self, target_calendar_id: str) -> bool:
+        """Return whether another entry already syncs into this calendar.
+
+        Entries are keyed by target_calendar_id as their unique_id (set
+        here and at initial setup), so this is a simple lookup rather
+        than scanning entry data directly.
+        """
+        return any(
+            other_entry.entry_id != self.config_entry.entry_id
+            and other_entry.unique_id == target_calendar_id
+            for other_entry in self.hass.config_entries.async_entries(DOMAIN)
         )
 
     async def _async_fetch_writable_calendars(self) -> list[Calendar]:

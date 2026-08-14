@@ -36,5 +36,5 @@ async def async_get_description_placeholders(hass: HomeAssistant) -> dict[str, s
             "https://console.cloud.google.com/apis/credentials/consent"
         ),
         "oauth_creds_url": "https://console.cloud.google.com/apis/credentials",
-        "more_info_url": "https://github.com/YOUR_GITHUB_USERNAME/ha-calendar-mirror",
+        "more_info_url": "https://github.com/susannemoog/ha-calendar-mirror",
     }
