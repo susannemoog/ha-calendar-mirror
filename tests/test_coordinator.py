@@ -20,7 +20,7 @@ from gcal_sync.model import DateOrDatetime, Event as GoogleEvent
 from homeassistant.core import ServiceCall, SupportsResponse
 import pytest
 
-from custom_components.calendar_mirror.const import SYNC_TAG
+from custom_components.calendar_mirror.const import SYNC_TAG, SYNC_TITLE_PREFIX
 from custom_components.calendar_mirror.coordinator import (
     CalendarMirrorCoordinator,
     _parse_ha_event_datetime,
@@ -166,9 +166,10 @@ class TestCreateTargetEvent:
         args, _ = mock_google_service.async_create_event.await_args
         calendar_id, event = args
         assert calendar_id == "target@example.com"
-        assert event.summary == "Waste collection"
+        assert event.summary == f"{SYNC_TITLE_PREFIX}Waste collection"
         assert SYNC_TAG in event.description
         assert "calendar.waste" in event.description
+        assert "overwritten on the next sync" in event.description
         assert "Bio bin" in event.description
         assert event.start.date == date(2026, 8, 20)
         assert event.end.date == date(2026, 8, 21)
@@ -201,7 +202,7 @@ class TestCreateTargetEvent:
         await coordinator._create_target_event(ha_event, "calendar.foo")  # noqa: SLF001
 
         _, event = mock_google_service.async_create_event.await_args.args
-        assert event.summary == "(no title)"
+        assert event.summary == f"{SYNC_TITLE_PREFIX}(no title)"
 
 
 class TestAsyncUpdateData:

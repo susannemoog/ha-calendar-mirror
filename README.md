@@ -28,7 +28,11 @@ Home Assistant's UI it's listed as **"Mirror to Google Calendar"**.
   next sync pass, since the integration has no way to know it was
   intentional and just rebuilds from HA's current data. Deleting an
   event in Google Calendar does not delete it in Home Assistant; nothing
-  is ever written back to HA.
+  is ever written back to HA. Synced events are marked with a 🔒 in the
+  title and a note in the description explaining this — Google Calendar
+  has no per-event read-only flag for the calendar owner (permissions
+  are calendar-level, not per-event), so this is a visible warning, not
+  an enforced restriction.
 - Authenticates via Home Assistant's standard OAuth2 `application_credentials`
   flow — the same mechanism the official Google Calendar integration
   uses, so there's no separate script, browser popup, or manually

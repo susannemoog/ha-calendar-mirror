@@ -46,7 +46,7 @@ from gcal_sync.model import DateOrDatetime, Event as GoogleEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DEFAULT_SYNC_WINDOW_DAYS, DOMAIN, SYNC_TAG
+from .const import DEFAULT_SYNC_WINDOW_DAYS, DOMAIN, SYNC_TAG, SYNC_TITLE_PREFIX
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,8 +135,13 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
 
     async def _create_target_event(self, ha_event: dict, source_entity: str) -> None:
         """Create one event in the target Google Calendar."""
-        summary = ha_event.get("summary", "(no title)")
-        description = f"{SYNC_TAG} from {source_entity}\n\n{ha_event.get('description') or ''}".strip()
+        summary = SYNC_TITLE_PREFIX + ha_event.get("summary", "(no title)")
+        description = (
+            f"{SYNC_TAG} Synced automatically from Home Assistant ({source_entity}). "
+            "Edits or deletions made here will be overwritten on the next sync - "
+            f"edit the source in Home Assistant instead.\n\n"
+            f"{ha_event.get('description') or ''}"
+        ).strip()
 
         event = GoogleEvent(
             summary=summary,

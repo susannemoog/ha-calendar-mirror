@@ -15,5 +15,13 @@ DEFAULT_SYNC_INTERVAL_MINUTES = 20
 # calendar.
 SYNC_TAG = "[calendar-mirror]"
 
+# Prepended to the event title so synced events are visibly marked even in
+# views that don't show the description (e.g. Google Calendar's month/week
+# grid). Google's API has no per-event "read-only" flag for the calendar
+# owner - permissions are calendar-level, not per-event - so this is a
+# visible warning rather than an enforced restriction: manual edits are
+# still possible, they just get overwritten on the next sync.
+SYNC_TITLE_PREFIX = "🔒 "
+
 OAUTH2_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 OAUTH2_TOKEN = "https://oauth2.googleapis.com/token"
