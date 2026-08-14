@@ -25,3 +25,8 @@ SYNC_TITLE_PREFIX = "🔒 "
 
 OAUTH2_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 OAUTH2_TOKEN = "https://oauth2.googleapis.com/token"
+
+# The redirect URI users must authorize on their Google Cloud OAuth
+# client - HA's OAuth2 helper always proxies through this, never the
+# instance's own domain (see notebook gotchas).
+OAUTH2_REDIRECT_URI = "https://my.home-assistant.io/redirect/oauth"

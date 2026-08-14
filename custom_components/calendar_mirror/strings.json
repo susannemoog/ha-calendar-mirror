@@ -62,6 +62,6 @@
     }
   },
   "application_credentials": {
-    "description": "Follow the [instructions]({more_info_url}) for setting up a Google API OAuth client. You will need to create credentials with a **Web application** type authorized to redirect to `https://my.home-assistant.io/redirect/oauth`.\n\nTo be able to configure Calendar Mirror you first need to set up access to the [Google Cloud Console]({oauth_creds_url}) and enable the Calendar API on the [consent screen]({oauth_consent_url})."
+    "description": "Follow the [instructions]({more_info_url}) for setting up a Google API OAuth client. You will need to create credentials with a **Web application** type authorized to redirect to {redirect_uri}.\n\nTo be able to configure Calendar Mirror you first need to set up access to the [Google Cloud Console]({oauth_creds_url}) and enable the Calendar API on the [consent screen]({oauth_consent_url})."
   }
 }

@@ -12,7 +12,7 @@ long-lived token, no local browser popup.
 from homeassistant.components.application_credentials import AuthorizationServer
 from homeassistant.core import HomeAssistant
 
-from .const import OAUTH2_AUTHORIZE, OAUTH2_TOKEN
+from .const import OAUTH2_AUTHORIZE, OAUTH2_REDIRECT_URI, OAUTH2_TOKEN
 
 
 async def async_get_authorization_server(hass: HomeAssistant) -> AuthorizationServer:
@@ -37,4 +37,5 @@ async def async_get_description_placeholders(hass: HomeAssistant) -> dict[str, s
         ),
         "oauth_creds_url": "https://console.cloud.google.com/apis/credentials",
         "more_info_url": "https://github.com/susannemoog/ha-calendar-mirror",
+        "redirect_uri": OAUTH2_REDIRECT_URI,
     }
