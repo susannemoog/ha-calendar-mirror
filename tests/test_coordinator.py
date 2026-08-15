@@ -1,23 +1,15 @@
 """Tests for the CalendarMirrorCoordinator sync logic.
 
-These exercise the coordinator against the *real* gcal_sync model/response
-classes (not hand-rolled fakes) wherever practical, specifically because
-the original scaffold had a real bug here: `async_list_events` returns an
-object whose `__aiter__` yields pages (each exposing events via `.items`),
-not individual events directly. A fake that didn't mirror that shape
-would have let the bug pass silently.
+The coordinator is backend-agnostic - it talks to a `TargetCalendarClient`,
+not gcal_sync or caldav directly. These tests mock that abstraction; the
+backend-specific adapters (including the gcal_sync pagination regression
+test) live in test_target.py.
 """
 
 from datetime import UTC, date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
-from gcal_sync.api import (
-    GoogleCalendarService,
-    ListEventsResponse,
-    _ListEventsResponseModel,
-)
 from gcal_sync.exceptions import AuthException
-from gcal_sync.model import DateOrDatetime, Event as GoogleEvent
 from homeassistant.core import ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 import pytest
@@ -27,47 +19,30 @@ from custom_components.calendar_mirror.coordinator import (
     CalendarMirrorCoordinator,
     _parse_ha_event_datetime,
 )
+from custom_components.calendar_mirror.target import TargetCalendarClient, TargetEvent
 
 TEST_ENTRY_ID = "test-entry-id"
 TEST_SYNC_TAG = f"{SYNC_TAG}:{TEST_ENTRY_ID}"
 
 
-def _make_google_event(event_id: str, description: str | None) -> GoogleEvent:
-    """Build a minimal real gcal_sync Event for use as target-calendar test data."""
-    return GoogleEvent(
-        id=event_id,
-        summary="Existing event",
-        description=description,
-        start=DateOrDatetime(date=date(2026, 8, 20)),
-        end=DateOrDatetime(date=date(2026, 8, 21)),
-    )
-
-
-def _make_list_events_response(events: list[GoogleEvent]) -> ListEventsResponse:
-    """Wrap events in a real (single-page) ListEventsResponse."""
-    model = _ListEventsResponseModel(items=events)
-    return ListEventsResponse(model)
+@pytest.fixture
+def mock_target() -> MagicMock:
+    """Return a mocked TargetCalendarClient with async methods stubbed."""
+    target = MagicMock(spec=TargetCalendarClient)
+    target.async_list_events = AsyncMock(return_value=[])
+    target.async_delete_event = AsyncMock()
+    target.async_create_event = AsyncMock()
+    return target
 
 
 @pytest.fixture
-def mock_google_service() -> MagicMock:
-    """Return a mocked GoogleCalendarService with async methods stubbed."""
-    service = MagicMock(spec=GoogleCalendarService)
-    service.async_list_events = AsyncMock()
-    service.async_delete_event = AsyncMock()
-    service.async_create_event = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def coordinator(hass, mock_google_service: MagicMock) -> CalendarMirrorCoordinator:
-    """Return a coordinator wired up with the mocked Google service."""
+def coordinator(hass, mock_target: MagicMock) -> CalendarMirrorCoordinator:
+    """Return a coordinator wired up with the mocked target client."""
     return CalendarMirrorCoordinator(
         hass,
         entry_id=TEST_ENTRY_ID,
-        google_service=mock_google_service,
+        target=mock_target,
         source_calendars=["calendar.test_source"],
-        target_calendar_id="target@example.com",
         sync_window_days=30,
     )
 
@@ -95,85 +70,45 @@ class TestClearPreviouslySyncedEvents:
     async def test_deletes_only_tagged_events(
         self,
         coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
+        mock_target: MagicMock,
     ) -> None:
         """Events without our sync tag must never be deleted."""
-        tagged = _make_google_event("tagged-1", f"{TEST_SYNC_TAG} from calendar.foo")
-        untagged = _make_google_event("untagged-1", "A manually created event")
-        no_description = _make_google_event("no-desc-1", None)
-        mock_google_service.async_list_events.return_value = _make_list_events_response(
-            [tagged, untagged, no_description]
+        tagged = TargetEvent(
+            description=f"{TEST_SYNC_TAG} from calendar.foo", native="tagged-1"
         )
+        untagged = TargetEvent(
+            description="A manually created event", native="untagged-1"
+        )
+        no_description = TargetEvent(description=None, native="no-desc-1")
+        mock_target.async_list_events.return_value = [tagged, untagged, no_description]
 
         start = datetime.now(UTC)
         end = start + timedelta(days=30)
         await coordinator._clear_previously_synced_events(start, end)  # noqa: SLF001
 
-        mock_google_service.async_delete_event.assert_awaited_once_with(
-            calendar_id="target@example.com",
-            event_id="tagged-1",
-        )
+        mock_target.async_delete_event.assert_awaited_once_with(tagged)
 
     async def test_does_not_delete_another_entrys_synced_events(
         self,
         coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
+        mock_target: MagicMock,
     ) -> None:
         """Two config entries sharing a target calendar must not delete each other's events.
 
         Regression test for the tag being scoped per config entry
         (`SYNC_TAG:{entry_id}`) rather than a single global marker.
         """
-        other_entrys_event = _make_google_event(
-            "other-entry-1", f"{SYNC_TAG}:some-other-entry-id from calendar.foo"
+        other_entrys_event = TargetEvent(
+            description=f"{SYNC_TAG}:some-other-entry-id from calendar.foo",
+            native="other-entry-1",
         )
-        mock_google_service.async_list_events.return_value = _make_list_events_response(
-            [other_entrys_event]
-        )
+        mock_target.async_list_events.return_value = [other_entrys_event]
 
         start = datetime.now(UTC)
         end = start + timedelta(days=30)
         await coordinator._clear_previously_synced_events(start, end)  # noqa: SLF001
 
-        mock_google_service.async_delete_event.assert_not_awaited()
-
-    async def test_paginated_results_all_checked(
-        self,
-        coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
-    ) -> None:
-        """Verify paged results are walked correctly.
-
-        Regression test: iterating `async_list_events`'s result must walk
-        pages and their `.items`, not treat the result as an async iterator
-        of events directly.
-        """
-        page1 = _make_list_events_response(
-            [_make_google_event("p1-tagged", TEST_SYNC_TAG)]
-        )
-        page2_model = _ListEventsResponseModel(
-            items=[_make_google_event("p2-tagged", TEST_SYNC_TAG)]
-        )
-
-        async def fake_get_next_page(page_token: str | None):
-            return page2_model
-
-        # Simulate a two-page result by wiring page1's private _get_next_page
-        # and page_token, matching how ListEventsResponse.__aiter__ works.
-        page1._model.page_token = "next"  # noqa: SLF001
-        page1._get_next_page = fake_get_next_page  # noqa: SLF001
-
-        mock_google_service.async_list_events.return_value = page1
-
-        start = datetime.now(UTC)
-        end = start + timedelta(days=30)
-        await coordinator._clear_previously_synced_events(start, end)  # noqa: SLF001
-
-        deleted_ids = {
-            call.kwargs["event_id"]
-            for call in mock_google_service.async_delete_event.await_args_list
-        }
-        assert deleted_ids == {"p1-tagged", "p2-tagged"}
+        mock_target.async_delete_event.assert_not_awaited()
 
 
 class TestCreateTargetEvent:
@@ -182,7 +117,7 @@ class TestCreateTargetEvent:
     async def test_builds_event_with_sync_tag_and_creates_it(
         self,
         coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
+        mock_target: MagicMock,
     ) -> None:
         """A normal HA event should be created with the sync tag in its description."""
         ha_event = {
@@ -193,24 +128,22 @@ class TestCreateTargetEvent:
         }
         await coordinator._create_target_event(ha_event, "calendar.waste")  # noqa: SLF001
 
-        mock_google_service.async_create_event.assert_awaited_once()
-        args, _ = mock_google_service.async_create_event.await_args
-        calendar_id, event = args
-        assert calendar_id == "target@example.com"
-        assert event.summary == f"{SYNC_TITLE_PREFIX}Waste collection"
-        assert SYNC_TAG in event.description
-        assert "calendar.waste" in event.description
-        assert "overwritten on the next sync" in event.description
-        assert "Bio bin" in event.description
-        assert event.start.date == date(2026, 8, 20)
-        assert event.end.date == date(2026, 8, 21)
+        mock_target.async_create_event.assert_awaited_once()
+        kwargs = mock_target.async_create_event.await_args.kwargs
+        assert kwargs["summary"] == f"{SYNC_TITLE_PREFIX}Waste collection"
+        assert SYNC_TAG in kwargs["description"]
+        assert "calendar.waste" in kwargs["description"]
+        assert "overwritten on the next sync" in kwargs["description"]
+        assert "Bio bin" in kwargs["description"]
+        assert kwargs["start"] == date(2026, 8, 20)
+        assert kwargs["end"] == date(2026, 8, 21)
 
     async def test_timed_event_uses_datetime(
         self,
         coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
+        mock_target: MagicMock,
     ) -> None:
-        """A timed HA event should produce a Google event with a datetime, not a date."""
+        """A timed HA event should produce a target event with a datetime, not a date."""
         ha_event = {
             "summary": "Meeting",
             "start": "2026-08-20T09:00:00+02:00",
@@ -218,22 +151,22 @@ class TestCreateTargetEvent:
         }
         await coordinator._create_target_event(ha_event, "calendar.work")  # noqa: SLF001
 
-        _, event = mock_google_service.async_create_event.await_args.args
-        assert event.start.date_time == datetime(
+        kwargs = mock_target.async_create_event.await_args.kwargs
+        assert kwargs["start"] == datetime(
             2026, 8, 20, 9, 0, 0, tzinfo=timezone(timedelta(hours=2))
         )
 
     async def test_missing_summary_falls_back(
         self,
         coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
+        mock_target: MagicMock,
     ) -> None:
         """An HA event with no summary should fall back to a placeholder title."""
         ha_event = {"start": "2026-08-20", "end": "2026-08-21"}
         await coordinator._create_target_event(ha_event, "calendar.foo")  # noqa: SLF001
 
-        _, event = mock_google_service.async_create_event.await_args.args
-        assert event.summary == f"{SYNC_TITLE_PREFIX}(no title)"
+        kwargs = mock_target.async_create_event.await_args.kwargs
+        assert kwargs["summary"] == f"{SYNC_TITLE_PREFIX}(no title)"
 
 
 class TestAsyncUpdateData:
@@ -243,13 +176,9 @@ class TestAsyncUpdateData:
         self,
         hass,
         coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
+        mock_target: MagicMock,
     ) -> None:
         """A full refresh should read source events and create them on the target."""
-        mock_google_service.async_list_events.return_value = _make_list_events_response(
-            []
-        )
-
         get_events_calls: list[ServiceCall] = []
 
         async def fake_get_events(call: ServiceCall) -> dict:
@@ -277,38 +206,32 @@ class TestAsyncUpdateData:
 
         assert len(get_events_calls) == 1
         assert get_events_calls[0].data["entity_id"] == "calendar.test_source"
-        mock_google_service.async_create_event.assert_awaited_once()
+        mock_target.async_create_event.assert_awaited_once()
 
     async def test_auth_failure_triggers_reauth(
         self,
         coordinator: CalendarMirrorCoordinator,
-        mock_google_service: MagicMock,
+        mock_target: MagicMock,
     ) -> None:
-        """An expired/revoked Google grant should surface as ConfigEntryAuthFailed.
+        """An expired/revoked target-calendar grant should surface as ConfigEntryAuthFailed.
 
         DataUpdateCoordinator turns this specific exception into HA's
         standard "reauthenticate" prompt - a generic exception would not.
         """
-        mock_google_service.async_list_events.side_effect = AuthException(
-            "token revoked"
-        )
+        mock_target.async_list_events.side_effect = AuthException("token revoked")
 
         with pytest.raises(ConfigEntryAuthFailed):
             await coordinator._async_update_data()  # noqa: SLF001
 
     async def test_one_bad_source_does_not_block_others(
-        self, hass, mock_google_service: MagicMock
+        self, hass, mock_target: MagicMock
     ) -> None:
         """One source calendar erroring shouldn't prevent the others from syncing."""
-        mock_google_service.async_list_events.return_value = _make_list_events_response(
-            []
-        )
         coordinator = CalendarMirrorCoordinator(
             hass,
             entry_id=TEST_ENTRY_ID,
-            google_service=mock_google_service,
+            target=mock_target,
             source_calendars=["calendar.bad_source", "calendar.good_source"],
-            target_calendar_id="target@example.com",
             sync_window_days=30,
         )
 
@@ -336,4 +259,4 @@ class TestAsyncUpdateData:
 
         await coordinator._async_update_data()  # noqa: SLF001
 
-        mock_google_service.async_create_event.assert_awaited_once()
+        mock_target.async_create_event.assert_awaited_once()

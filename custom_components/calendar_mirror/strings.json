@@ -1,12 +1,29 @@
 {
   "config": {
     "step": {
+      "user": {
+        "title": "Choose target calendar type",
+        "description": "Calendar Mirror can sync into Google Calendar or into a generic CalDAV server (e.g. Nextcloud, mailbox.org, Radicale).",
+        "data": {
+          "target_type": "Target type"
+        }
+      },
       "pick_implementation": {
         "title": "Pick authentication method"
       },
+      "caldav_credentials": {
+        "title": "Connect to your CalDAV server",
+        "description": "Enter your CalDAV server's connection details. The connection is tested before continuing.",
+        "data": {
+          "caldav_url": "Server URL",
+          "caldav_username": "Username",
+          "caldav_password": "Password",
+          "caldav_verify_ssl": "Verify SSL certificate"
+        }
+      },
       "source_calendars": {
         "title": "Choose source calendars",
-        "description": "Select the Home Assistant calendar entities to mirror into Google Calendar.",
+        "description": "Select the Home Assistant calendar entities to mirror into the target calendar.",
         "data": {
           "source_calendars": "Source calendars"
         }
@@ -18,17 +35,34 @@
           "target_calendar_id": "Target calendar"
         }
       },
+      "caldav_target_calendar": {
+        "title": "Choose target calendar",
+        "description": "Pick which of your CalDAV calendars to sync events into. If your calendars couldn't be loaded, enter a calendar's URL manually instead.",
+        "data": {
+          "target_calendar_id": "Target calendar"
+        }
+      },
       "reauth_confirm": {
-        "title": "Reauthenticate Mirror to Google Calendar",
+        "title": "Reauthenticate Calendar Mirror",
         "description": "Your Google authorization has expired or been revoked. Sign in again to keep syncing."
+      },
+      "caldav_reauth_confirm": {
+        "title": "Reauthenticate Calendar Mirror",
+        "description": "Your CalDAV password for {caldav_username} no longer works. Enter the current password to keep syncing.",
+        "data": {
+          "caldav_password": "Password"
+        }
       }
     },
     "error": {
       "no_calendars_selected": "Select at least one source calendar.",
-      "invalid_calendar_id": "Enter a target calendar ID."
+      "invalid_calendar_id": "Enter a target calendar ID.",
+      "invalid_auth": "Invalid username or password.",
+      "cannot_connect": "Could not connect to the CalDAV server. Check the URL and try again.",
+      "unknown": "Unexpected error while connecting to the CalDAV server."
     },
     "abort": {
-      "already_configured": "This Google Calendar is already being synced by another Calendar Mirror entry.",
+      "already_configured": "This calendar is already being synced by another Calendar Mirror entry.",
       "reauth_successful": "Re-authentication was successful.",
       "oauth_error": "Received invalid token data.",
       "oauth_failed": "Error while obtaining access token.",
@@ -48,7 +82,7 @@
     "step": {
       "init": {
         "title": "Reconfigure Calendar Mirror",
-        "description": "Change which Home Assistant calendars are mirrored and which Google Calendar they sync into.",
+        "description": "Change which Home Assistant calendars are mirrored and which calendar they sync into.",
         "data": {
           "source_calendars": "Source calendars",
           "target_calendar_id": "Target calendar"

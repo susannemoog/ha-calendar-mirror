@@ -137,7 +137,7 @@ class TestTargetCalendarStep:
         assert result["type"] == FlowResultType.FORM
         # readonly@... must be excluded since its accessRole is "reader",
         # not writable.
-        offered_ids = {cal.id for cal in flow._target_calendars}  # noqa: SLF001
+        offered_ids = {cal.id for cal in flow._google_target_calendars}  # noqa: SLF001
         assert offered_ids == {"primary", "family@group.calendar.google.com"}
 
     async def test_fetch_failure_falls_back_to_manual_entry(
@@ -156,7 +156,7 @@ class TestTargetCalendarStep:
         result = await flow.async_step_target_calendar()
 
         assert result["type"] == FlowResultType.FORM
-        assert flow._target_calendars == []  # noqa: SLF001
+        assert flow._google_target_calendars == []  # noqa: SLF001
 
         # Manual entry still works even without a fetched list.
         result = await flow.async_step_target_calendar(

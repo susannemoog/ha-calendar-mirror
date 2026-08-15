@@ -23,9 +23,11 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClien
 from custom_components.calendar_mirror.const import (
     CONF_SOURCE_CALENDARS,
     CONF_TARGET_CALENDAR_ID,
+    CONF_TARGET_TYPE,
     DOMAIN,
     OAUTH2_AUTHORIZE,
     OAUTH2_TOKEN,
+    TARGET_TYPE_GOOGLE,
 )
 
 CLIENT_ID = "test-client-id"
@@ -54,11 +56,18 @@ async def test_full_flow_creates_entry_with_calendars(
         ),
     )
 
-    # With only one registered implementation and an active request in
-    # context (via current_request_with_host), HA's OAuth2 helper skips
-    # straight past the pick_implementation form to the external step.
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "user"
+
+    # With only one registered implementation and an active request in
+    # context (via current_request_with_host), HA's OAuth2 helper skips
+    # straight past the pick_implementation form to the external step
+    # once the Google backend is chosen.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_TARGET_TYPE: TARGET_TYPE_GOOGLE}
     )
     assert result["type"] == FlowResultType.EXTERNAL_STEP
     assert result["url"].startswith(OAUTH2_AUTHORIZE)

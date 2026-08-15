@@ -4,24 +4,10 @@ Ports the logic from the original prototype script
 (ha_google_calendar_sync.py) into HA's own process, using:
   - HA's internal calendar.get_events service for source events
     (no external REST round-trip needed, since we're running inside HA)
-  - gcal_sync.api.GoogleCalendarService for the target Google Calendar,
-    reusing the OAuth2 session HA's config_entry_oauth2_flow already
-    manages for us.
-
-STATUS: create/delete/list calls below are verified against the real
-gcal_sync source (github.com/allenporter/gcal_sync, gcal_sync/api.py and
-gcal_sync/model.py, checked 2026-08-13) rather than guessed:
-  - GoogleCalendarService.async_create_event(calendar_id, event: Event) -> None
-  - GoogleCalendarService.async_delete_event(calendar_id, event_id) -> None
-  - GoogleCalendarService.async_list_events(request: ListEventsRequest)
-    -> ListEventsResponse, whose `__aiter__` yields *pages*
-    (ListEventsResponse objects), each with an `.items: list[Event]`
-    property - NOT individual Event objects. The original skeleton's
-    `async for event in result` was wrong for this reason (see notebook
-    gotchas).
-  - gcal_sync.model.Event requires `start`/`end` as DateOrDatetime;
-    DateOrDatetime.parse(date_or_datetime) builds the right one from a
-    plain `datetime.date` or `datetime.datetime`.
+  - a `target.TargetCalendarClient` for the target calendar, so this
+    coordinator doesn't care whether that target is Google Calendar or a
+    CalDAV server - see target.py for the backend-specific verified API
+    details (gcal_sync's page-vs-event iteration, caldav's async client).
 
 Source-side event shape: HA's `calendar.get_events` service (internal
 service call, not the REST API) returns events built by
@@ -41,29 +27,28 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 import logging
 
-from gcal_sync.api import GoogleCalendarService, ListEventsRequest
+from caldav.lib.error import AuthorizationError
 from gcal_sync.exceptions import AuthException
-from gcal_sync.model import DateOrDatetime, Event as GoogleEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DEFAULT_SYNC_WINDOW_DAYS, DOMAIN, SYNC_TAG, SYNC_TITLE_PREFIX
+from .target import TargetCalendarClient
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
-    """Coordinates mirroring source HA calendars into a target Google Calendar."""
+    """Coordinates mirroring source HA calendars into a target calendar."""
 
     def __init__(
         self,
         hass: HomeAssistant,
         *,
         entry_id: str,
-        google_service: GoogleCalendarService,
+        target: TargetCalendarClient,
         source_calendars: list[str],
-        target_calendar_id: str,
         sync_window_days: int = DEFAULT_SYNC_WINDOW_DAYS,
         update_interval: timedelta | None = None,
     ) -> None:
@@ -74,9 +59,10 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
             name=DOMAIN,
             update_interval=update_interval,
         )
-        self._google_service = google_service
+        # Public so async_unload_entry can close backend resources (e.g.
+        # the CalDAV client's HTTP session) that outlive this coordinator.
+        self.target = target
         self._source_calendars = source_calendars
-        self._target_calendar_id = target_calendar_id
         self._sync_window_days = sync_window_days
         # Scoped per config entry so two entries never delete each other's
         # events even if they somehow end up pointed at the same target
@@ -98,9 +84,10 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
                 # shouldn't stop the others from syncing -
                 # HomeAssistantError covers the errors calendar.get_events
                 # itself is documented to raise (unknown entity,
-                # unavailable, etc.). Google API calls aren't wrapped here
-                # since an AuthException from those means every subsequent
-                # call would fail identically - no point isolating those.
+                # unavailable, etc.). Target calendar API calls aren't
+                # wrapped here since an auth failure from those means every
+                # subsequent call would fail identically - no point
+                # isolating those.
                 try:
                     events = await self._get_ha_events(entity_id, start, end)
                 except HomeAssistantError as err:
@@ -113,9 +100,9 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
                 for event in events:
                     await self._create_target_event(event, entity_id)
                     total += 1
-        except AuthException as err:
+        except (AuthException, AuthorizationError) as err:
             raise ConfigEntryAuthFailed(
-                "Google authorization expired or was revoked"
+                "Target calendar authorization expired or was revoked"
             ) from err
 
         _LOGGER.debug(
@@ -145,24 +132,12 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
         self, start: datetime, end: datetime
     ) -> None:
         """Delete events in the target calendar previously created by us."""
-        request = ListEventsRequest(
-            calendar_id=self._target_calendar_id,
-            start_time=start,
-            end_time=end,
-        )
-        result = await self._google_service.async_list_events(request)
-        # `result` iterates *pages*, each exposing its events via `.items`
-        # - see module docstring for why this isn't `async for event in result`.
-        async for page in result:
-            for event in page.items:
-                if event.id and self._sync_tag in (event.description or ""):
-                    await self._google_service.async_delete_event(
-                        calendar_id=self._target_calendar_id,
-                        event_id=event.id,
-                    )
+        for event in await self.target.async_list_events(start, end):
+            if self._sync_tag in (event.description or ""):
+                await self.target.async_delete_event(event)
 
     async def _create_target_event(self, ha_event: dict, source_entity: str) -> None:
-        """Create one event in the target Google Calendar."""
+        """Create one event in the target calendar."""
         summary = SYNC_TITLE_PREFIX + ha_event.get("summary", "(no title)")
         description = (
             f"{self._sync_tag} Synced automatically from Home Assistant ({source_entity}). "
@@ -171,13 +146,12 @@ class CalendarMirrorCoordinator(DataUpdateCoordinator[None]):
             f"{ha_event.get('description') or ''}"
         ).strip()
 
-        event = GoogleEvent(
+        await self.target.async_create_event(
             summary=summary,
             description=description,
-            start=DateOrDatetime.parse(_parse_ha_event_datetime(ha_event["start"])),
-            end=DateOrDatetime.parse(_parse_ha_event_datetime(ha_event["end"])),
+            start=_parse_ha_event_datetime(ha_event["start"]),
+            end=_parse_ha_event_datetime(ha_event["end"]),
         )
-        await self._google_service.async_create_event(self._target_calendar_id, event)
 
 
 def _parse_ha_event_datetime(value: str) -> date | datetime:
