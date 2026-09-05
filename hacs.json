@@ -1,5 +1,5 @@
 {
-  "name": "Mirror to Google Calendar",
+  "name": "Calendar Mirror",
   "render_readme": true,
   "homeassistant": "2025.8.0"
 }
