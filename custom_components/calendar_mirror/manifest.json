@@ -8,5 +8,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/susannemoog/ha-calendar-mirror/issues",
   "requirements": ["gcal-sync>=9.1.0", "caldav>=3.2.1", "niquests>=3.21.0"],
-  "version": "0.2.0"
+  "version": "1.0.0"
 }
