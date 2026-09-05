@@ -8,8 +8,11 @@ arbitrary calendar sources directly — only natively linked Google/Microsoft/
 Apple accounts.
 
 Name: **`ha-calendar-mirror`** (GitHub repo) / domain **`calendar_mirror`**
-(HA integration) / **"Mirror to Google Calendar"** (HA-facing display
-name). Checked 2026-08-14, before making the repo public: no other
+(HA integration) / **"Calendar Mirror"** (HA-facing display name - the
+integration itself; each config entry gets its own type-specific title,
+e.g. `"Mirror to Google Calendar"` or `"Mirror to CalDAV (<username>)"`,
+since v0.2.0 added CalDAV as a second backend). Checked 2026-08-14, before
+making the repo public: no other
 GitHub repo named `ha-calendar-mirror` or `calendar-mirror`, no other HA
 custom integration using the `calendar_mirror` domain (searched GitHub
 code search for `manifest.json` files declaring it), nothing matching in
@@ -74,7 +77,7 @@ Build a proper `custom_component`, not a standalone script:
 - [x] Install via HACS custom repository on `ha.herzundschrotti.de` and confirm it works on the real production instance, not just the local dev one
 - [x] CI (GitHub Actions: tests/lint + HACS/hassfest validation)
 - [ ] Reply to the Dec 2025 community thread once there's something installable
-- [x] (Stretch) CalDAV as a second target type, generalizing beyond Google — implemented and unit/flow-tested; real-account verification against mailbox.org still open (see session log)
+- [x] (Stretch) CalDAV as a second target type, generalizing beyond Google — implemented, unit/flow-tested, and verified against a real mailbox.org account end-to-end (see session log)
 
 ## 5. Known gotchas worth writing into the README (learned the hard way)
 
@@ -159,6 +162,13 @@ Decided to revisit the brand-icon deferral after confirming it's the literal, so
 - **Deliberately not done yet**: real end-to-end verification against Susi's actual mailbox.org CalDAV account - asked in-chat how she'd like to share the connection details (paste in chat / env-var-or-file / skip for now) and she chose to skip for now. Everything CalDAV-related so far is verified against the real `caldav` library's actual classes/exceptions and covered by mocked tests, but has never actually round-tripped against a live CalDAV server. Flagged as open in the roadmap above rather than checked off outright.
 
 **Still open**: real-account CalDAV verification (blocked on Susi sharing mailbox.org credentials whenever she's ready); HACS default-store submission; replying to the Dec 2025 community thread.
+
+**2026-09-05** — CalDAV verified against the real mailbox.org account (`dav.mailbox.org` / `mail@herzundschrotti.de`) - the one open item left from the previous entry. Rather than have Susi paste the password into chat, wrote a standalone script exercising `CalDavTargetCalendar` directly against the real server (create a throwaway event → list it back and confirm the sync-tag description matches → delete it → confirm it's gone), with the password entered via a local `getpass` prompt in her own terminal so it never touched the conversation or this environment. She also installed the integration onto `ha.herzundschrotti.de` via the existing HACS custom-repository path and ran the real CalDAV setup through the actual config flow, end to end. **Confirmed working in production.**
+
+- Caught a stale leftover from the CalDAV rename while preparing to release: `hacs.json`'s `name` field still said `"Mirror to Google Calendar"` even though `manifest.json` had already been renamed back to `"Calendar Mirror"` in the previous session - fixed.
+- Tagged and released **v0.2.0** (minor bump - CalDAV is a new feature, not just a fix). Confirmed `test.yml`/`validate.yml` both green on the release commit before tagging. Release notes cover the new backend plus the CI/Dependabot hardening accumulated since v0.1.1.
+
+**Still open**: HACS default-store submission (PR to `hacs/default`); replying to the Dec 2025 community thread now that CalDAV is confirmed working too, not just Google.
 
 ---
 
