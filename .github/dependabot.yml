@@ -4,8 +4,20 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    groups:
+      github-actions:
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "daily"
+    groups:
+      python-dependencies:
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "ruff"

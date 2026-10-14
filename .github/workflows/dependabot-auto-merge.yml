@@ -1,0 +1,33 @@
+# This workflow uses dependabot/fetch-metadata, which is not certified
+# by GitHub. It's maintained by Dependabot's own team, governed by its
+# own terms of service, privacy policy, and support documentation.
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'susannemoog/ha-calendar-mirror'
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Enable auto-merge for patch and minor updates
+        # ruff is excluded even though it'd otherwise qualify: its
+        # .pre-commit-config.yaml pin isn't tracked by Dependabot (no
+        # pre-commit ecosystem support), so that bump needs a human to
+        # keep the two pins in sync - see CONTRIBUTING.md/docs/notebook.md.
+        if: |
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor') &&
+          !contains(steps.metadata.outputs.dependency-names, 'ruff')
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
