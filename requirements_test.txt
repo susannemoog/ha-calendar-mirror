@@ -2,4 +2,4 @@ pytest-homeassistant-custom-component
 gcal-sync>=9.2.0
 caldav>=3.5.0
 niquests>=3.21.2
-ruff==0.17.0
+ruff==0.17.1
